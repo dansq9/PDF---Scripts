@@ -21,6 +21,10 @@ on:
         description: "Publish a release with the engine when the build succeeds"
         type: boolean
         default: true
+  push:
+    # A change to the build scripts or this workflow on main starts a build (arm64-v8a, published).
+    branches: [main]
+    paths: ["scripts/**", ".github/workflows/build-engine.yml"]
   schedule:
     # Monthly, 03:17 UTC on the 2nd, to pick up security fixes when LIBREOFFICE_TAG is bumped.
     - cron: "17 3 2 * *"
