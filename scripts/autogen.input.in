@@ -27,7 +27,7 @@
 --disable-ldap
 --disable-online-update
 --disable-libcmis
---disable-curl
+# --disable-curl  (not possible: svl and uui link the bundled curl)
 --disable-zxing
 --disable-skia
 --disable-pdfimport
