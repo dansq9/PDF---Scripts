@@ -15,6 +15,20 @@ case "$ABI" in
 esac
 sed -e "s|@ABI_DISTRO@|$DISTRO|" -e "s|@ANDROID_SDK@|$ANDROID_HOME|" -e "s|@ANDROID_NDK@|$ANDROID_NDK|" \
   "$HERE/autogen.input.in" | grep -v '^#' > "$LO/autogen.input"
+# LibreOffice's own Android viewer fails its lint on new SDKs (ObsoleteSdkInt and the like). Only its native
+# libraries and assets are used, so lint is switched off for that Gradle build without patching the checkout.
+mkdir -p "$HOME/.gradle/init.d"
+cat > "$HOME/.gradle/init.d/no-lint.gradle" <<'GRADLE'
+allprojects {
+    tasks.configureEach { t -> if (t.name.startsWith('lint')) t.enabled = false }
+    afterEvaluate { p ->
+        if (p.extensions.findByName('android') != null) {
+            p.android.lint.abortOnError = false
+            p.android.lint.checkReleaseBuilds = false
+        }
+    }
+}
+GRADLE
 cd "$LO"
 ./autogen.sh
 # Top-level make builds the static libraries, links liblo-native-code.so (android/Bootstrap/Makefile.shared)
