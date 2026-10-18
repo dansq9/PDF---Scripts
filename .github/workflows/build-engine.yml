@@ -1,0 +1,145 @@
+# Builds the LibreOffice engine that Papers downloads for "Exact conversion" (Word, Excel, PowerPoint,
+# OpenDocument to PDF on the phone). This repository is public so GitHub's standard runners are free;
+# it holds only build scripts for open-source LibreOffice, no app code.
+#
+# A first build can exceed the 6-hour job limit on a 4-core runner. ccache is saved even when a run
+# times out, so start it again: each run picks up where the last one stopped.
+name: Build LibreOffice engine (Android)
+
+on:
+  workflow_dispatch:
+    inputs:
+      libreoffice_tag:
+        description: "LibreOffice core tag"
+        default: "libreoffice-26.8.1.1"
+      abi:
+        description: "Android ABI"
+        type: choice
+        options: [arm64-v8a, x86_64]
+        default: arm64-v8a
+      publish:
+        description: "Publish a release with the engine when the build succeeds"
+        type: boolean
+        default: true
+  schedule:
+    # Monthly, 03:17 UTC on the 2nd, to pick up security fixes when LIBREOFFICE_TAG is bumped.
+    - cron: "17 3 2 * *"
+
+permissions:
+  contents: write
+
+env:
+  LIBREOFFICE_TAG: ${{ inputs.libreoffice_tag || vars.LIBREOFFICE_TAG || 'libreoffice-26.8.1.1' }}
+  ABI: ${{ inputs.abi || 'arm64-v8a' }}
+  NDK_VERSION: "28.2.13676358"
+  WORK: /mnt/lo-build
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Make room (the build needs about 40 GB)
+        run: |
+          df -h / /mnt
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL \
+            /usr/local/share/boost /usr/share/swift /usr/local/share/powershell /opt/microsoft \
+            /usr/local/lib/android/sdk/ndk /usr/local/lib/android/sdk/system-images /usr/local/lib/android/sdk/emulator || true
+          sudo docker image prune --all --force >/dev/null 2>&1 || true
+          sudo mkdir -p "$WORK" && sudo chown "$USER" "$WORK"
+          df -h / /mnt
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: "platforms;android-36 build-tools;36.0.0 ndk;${{ env.NDK_VERSION }}"
+
+      - name: Build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            autoconf automake bison ccache flex gperf libtool-bin make nasm pkg-config python3 python3-dev \
+            zip unzip xsltproc libxml2-utils libfontconfig1-dev libx11-dev libxext-dev libxrender-dev \
+            libxrandr-dev libgl1-mesa-dev libkrb5-dev libnss3-dev libcups2-dev ant zstd
+
+      - name: Check out LibreOffice core ${{ env.LIBREOFFICE_TAG }}
+        run: git clone --depth 1 --branch "$LIBREOFFICE_TAG" https://github.com/LibreOffice/core "$WORK/lo"
+
+      - name: Restore external tarballs
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.WORK }}/lo/external/tarballs
+          key: lo-tarballs-${{ env.LIBREOFFICE_TAG }}
+          restore-keys: lo-tarballs-
+
+      - name: Restore ccache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.WORK }}/ccache
+          key: lo-ccache-${{ env.ABI }}-${{ env.LIBREOFFICE_TAG }}-${{ github.run_id }}
+          restore-keys: |
+            lo-ccache-${{ env.ABI }}-${{ env.LIBREOFFICE_TAG }}-
+            lo-ccache-${{ env.ABI }}-
+
+      - name: Build
+        timeout-minutes: 320
+        env:
+          ANDROID_NDK: ${{ env.ANDROID_HOME }}/ndk/${{ env.NDK_VERSION }}
+          CCACHE_DIR: ${{ env.WORK }}/ccache
+          CCACHE_MAXSIZE: 6G
+        run: scripts/build-core.sh "$WORK/lo" "$ABI"
+
+      - name: Save ccache (also after a timeout, so the next run resumes)
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.WORK }}/ccache
+          key: lo-ccache-${{ env.ABI }}-${{ env.LIBREOFFICE_TAG }}-${{ github.run_id }}
+
+      - name: Save external tarballs
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.WORK }}/lo/external/tarballs
+          key: lo-tarballs-${{ env.LIBREOFFICE_TAG }}-${{ github.run_id }}
+
+      - name: Strip, check 16 KB alignment, measure
+        env:
+          ANDROID_NDK: ${{ env.ANDROID_HOME }}/ndk/${{ env.NDK_VERSION }}
+        run: |
+          scripts/harvest.sh "$WORK/lo" "$ABI" "engine-$ABI"
+          { echo "## LibreOffice ${LIBREOFFICE_TAG}, ${ABI}"; cat "engine-$ABI/sizes.md"; } >> "$GITHUB_STEP_SUMMARY"
+          tar -C "engine-$ABI" -cf - . | zstd -19 -T0 -o "engine-$ABI.tar.zst"
+          sha256sum "engine-$ABI.tar.zst" > "engine-$ABI.tar.zst.sha256"
+          ls -la engine-*.tar.zst*
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: libreoffice-android-${{ env.ABI }}
+          path: |
+            engine-${{ env.ABI }}.tar.zst
+            engine-${{ env.ABI }}.tar.zst.sha256
+            engine-${{ env.ABI }}/sizes.md
+          retention-days: 90
+
+      - name: Publish release
+        if: ${{ inputs.publish != false }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="engine-${LIBREOFFICE_TAG#libreoffice-}-${ABI}-${GITHUB_RUN_NUMBER}"
+          {
+            echo "LibreOffice ${LIBREOFFICE_TAG} built for Android ${ABI} as a headless converter for Papers' Exact conversion."
+            echo
+            echo "Source: https://github.com/LibreOffice/core/tree/${LIBREOFFICE_TAG} (unchanged), built with the scripts in this repository at ${GITHUB_SHA}. Licence: MPL 2.0 (see LICENSE.txt inside the archive)."
+            echo
+            cat "engine-$ABI/sizes.md"
+          } > notes.md
+          gh release create "$TAG" "engine-$ABI.tar.zst" "engine-$ABI.tar.zst.sha256" "engine-$ABI/sizes.md" \
+            --title "LibreOffice ${LIBREOFFICE_TAG#libreoffice-} · ${ABI}" --notes-file notes.md

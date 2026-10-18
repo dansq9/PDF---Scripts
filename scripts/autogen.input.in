@@ -1,0 +1,45 @@
+# LibreOffice core for Papers' Exact conversion: a headless converter, no UI, Android.
+# @ABI_DISTRO@, @ANDROID_SDK@ and @ANDROID_NDK@ are filled in by build-core.sh.
+# Each flag is explained in docs/libreoffice-exact-conversion.md section 2.2.
+--with-distro=@ABI_DISTRO@
+--with-android-sdk=@ANDROID_SDK@
+--with-android-ndk=@ANDROID_NDK@
+--with-android-api-level=26
+--enable-release-build
+--enable-ccache
+--with-lang=en-US
+--without-helppack-integration
+--without-myspell-dicts
+--disable-extension-integration
+--disable-extensions
+--with-galleries=no
+--with-templates=no
+--with-theme=colibre
+--disable-avmedia
+--disable-sdremote
+--disable-sdremote-bluetooth
+--disable-report-builder
+--disable-lpsolve
+--disable-coinmp
+--disable-librelogo
+--disable-lotuswordpro
+--disable-gpgmepp
+--disable-ldap
+--disable-online-update
+--disable-libcmis
+--disable-curl
+--disable-zxing
+--disable-skia
+--disable-pdfimport
+--disable-poppler
+--disable-firebird-sdbc
+--disable-mariadb-sdbc
+--disable-postgresql-sdbc
+--disable-database-connectivity
+--disable-dbus
+--disable-cups
+# Experiments, one at a time, each measured (size and the R1.2 test set) before it stays:
+#   --disable-scripting   (no Basic/macros; documents with macros still open)
+#   --disable-nss         (no NSS: password-protected ODF/OOXML cannot be opened; about -5 MB)
+# Every library linked with 16 KB pages (Play, Android 15+). NDK r28+ does this by default.
+LDFLAGS=-Wl,-z,max-page-size=16384
