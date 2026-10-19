@@ -1,0 +1,50 @@
+# Publishes the engine archive a finished build left as an artifact, without building again.
+# Used when a build succeeded but its release step did not run.
+name: Publish engine from a finished build
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "Run ID of the finished Build LibreOffice engine run"
+        required: true
+  push:
+    branches: [main]
+    paths: [".github/workflows/publish-artifact.yml"]
+
+permissions:
+  contents: write
+  actions: read
+
+env:
+  # Run 3 (libreoffice-26.8.1.1, arm64-v8a) built the first engine; its release step was skipped.
+  RUN_ID: ${{ inputs.run_id || '39178141891' }}
+  ABI: arm64-v8a
+  LIBREOFFICE_TAG: libreoffice-26.8.1.1
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: libreoffice-android-${{ env.ABI }}
+          run-id: ${{ env.RUN_ID }}
+          github-token: ${{ github.token }}
+      - name: Check and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -la
+          sha256sum -c "engine-$ABI.tar.zst.sha256"
+          TAG="engine-${LIBREOFFICE_TAG#libreoffice-}-${ABI}-run${RUN_ID}"
+          {
+            echo "LibreOffice ${LIBREOFFICE_TAG} built for Android ${ABI} as a headless converter for iamPDF's Exact conversion."
+            echo
+            echo "Source: https://github.com/LibreOffice/core/tree/${LIBREOFFICE_TAG} (unchanged), built by run ${RUN_ID} with the scripts in this repository. Licence: MPL 2.0 (see LICENSE.txt inside the archive)."
+            echo
+            cat engine-$ABI/sizes.md 2>/dev/null || cat sizes.md 2>/dev/null || true
+          } > notes.md
+          SIZES=$(ls engine-$ABI/sizes.md sizes.md 2>/dev/null | head -1)
+          gh release create "$TAG" "engine-$ABI.tar.zst" "engine-$ABI.tar.zst.sha256" $SIZES \
+            --repo "$GITHUB_REPOSITORY" --title "LibreOffice ${LIBREOFFICE_TAG#libreoffice-} · ${ABI}" --notes-file notes.md
