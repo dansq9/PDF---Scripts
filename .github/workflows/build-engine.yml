@@ -133,13 +133,14 @@ jobs:
           retention-days: 90
 
       - name: Publish release
-        if: ${{ inputs.publish != false }}
+        # On push and schedule runs inputs.publish is empty, which Actions compares as equal to false.
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.publish }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="engine-${LIBREOFFICE_TAG#libreoffice-}-${ABI}-${GITHUB_RUN_NUMBER}"
           {
-            echo "LibreOffice ${LIBREOFFICE_TAG} built for Android ${ABI} as a headless converter for Papers' Exact conversion."
+            echo "LibreOffice ${LIBREOFFICE_TAG} built for Android ${ABI} as a headless converter for iamPDF's Exact conversion."
             echo
             echo "Source: https://github.com/LibreOffice/core/tree/${LIBREOFFICE_TAG} (unchanged), built with the scripts in this repository at ${GITHUB_SHA}. Licence: MPL 2.0 (see LICENSE.txt inside the archive)."
             echo
