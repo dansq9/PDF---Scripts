@@ -19,7 +19,8 @@ rm -f "$OUT"/assets/unpack/user/fonts/Gen*.ttf
 fail=0
 for so in "$OUT/jniLibs/$ABI/"*.so; do
   "$STRIP" --strip-unneeded "$so"
-  # Every LOAD segment must be aligned to 2**14 (16 KB) or more.
+  # Every LOAD segment must be aligned to 2**14 (16 KB) or more. Google Play requires it for 64-bit ABIs only.
+  case "$ABI" in arm64-v8a|x86_64) ;; *) continue ;; esac
   for a in $("$READELF" -lW "$so" | awk '$1=="LOAD"{print $NF}'); do
     if [ $((a)) -lt 16384 ]; then echo "NOT 16 KB ALIGNED: $(basename "$so") (LOAD align $a)"; fail=1; fi
   done

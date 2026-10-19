@@ -15,14 +15,14 @@ on:
       abi:
         description: "Android ABI"
         type: choice
-        options: [arm64-v8a, x86_64]
+        options: [arm64-v8a, armeabi-v7a, x86_64]
         default: arm64-v8a
       publish:
         description: "Publish a release with the engine when the build succeeds"
         type: boolean
         default: true
   push:
-    # A change to the build scripts or this workflow on main starts a build (arm64-v8a, published).
+    # A change to the build scripts or this workflow on main starts a build (published).
     branches: [main]
     paths: ["scripts/**", ".github/workflows/build-engine.yml"]
   schedule:
@@ -34,7 +34,6 @@ permissions:
 
 env:
   LIBREOFFICE_TAG: ${{ inputs.libreoffice_tag || vars.LIBREOFFICE_TAG || 'libreoffice-26.8.1.1' }}
-  ABI: ${{ inputs.abi || 'arm64-v8a' }}
   NDK_VERSION: "28.2.13676358"
   WORK: /mnt/lo-build
 
@@ -42,6 +41,14 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 355
+    # The app bundle needs the engine for every ABI the app ships (arm64-v8a, armeabi-v7a, x86_64).
+    # A push builds the two not yet published; the monthly run rebuilds all three; a manual run builds one.
+    strategy:
+      fail-fast: false
+      matrix:
+        abi: ${{ fromJSON(inputs.abi && format('["{0}"]', inputs.abi) || (github.event_name == 'schedule' && '["arm64-v8a","armeabi-v7a","x86_64"]' || '["armeabi-v7a","x86_64"]')) }}
+    env:
+      ABI: ${{ matrix.abi }}
     steps:
       - uses: actions/checkout@v4
 
